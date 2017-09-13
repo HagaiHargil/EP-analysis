@@ -1,11 +1,8 @@
 """
 __author__ = Hagai Hargil
 """
-import scipy
 import h5py
-import csv
-import glob
-import pathlib
+import re
 import os
 import numpy as np
 import matplotlib.pyplot as plt
@@ -16,6 +13,7 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import warnings
 from collections import deque
+import pandas as pd
 
 
 def multipage(filename, figs=None, dpi=200):
@@ -68,7 +66,7 @@ def write_dict_to_gsheet(data: Dict, sheet, row: str):
 
 def write_all_data_to_gsheet(data: Dict, sheetname="Sheet1",
                              scope='https://spreadsheets.google.com/feeds',
-                             json_filename='client_secret.json',
+                             json_filename=r'C:\Users\Hagai\Documents\GitHub\python-gsheet\client_secret.json',
                              spreadsheet_name="Hypo_Hyper_from_EP"):
     """
     Write the data dict into a Google sheet
@@ -91,79 +89,159 @@ def write_all_data_to_gsheet(data: Dict, sheetname="Sheet1",
         write_dict_to_gsheet(data=dict_data, sheet=sheet, row=key)
 
 
-dict_of_data: Dict = {}
-list_of_wanted = ['S_or_run_stim', 'S_or_run_spont', 'S_or_run_juxta',
-                  'S_or_stand_stim', 'S_or_stand_spont', 'S_or_stand_juxta',
-                  'C_df_run_stim', 'C_df_run_spont', 'C_df_run_juxta',
-                  'C_df_stand_stim', 'C_df_stand_spont', 'C_df_stand_juxta']
+def walk_ep_dirs(directory: str, file_end: str, list_of_wanted):
+    """ Walk through dir, finding files ending with file_end """
 
-directory = r'X:\David\7mm_win_thy1\results'
+    dict_of_data: Dict = {}
 
-# Find *_with_compiled.mat and load it into memory
-for root, dirs, files in os.walk(directory):
-    for file in files:
-        if file.endswith("compiled.mat"):
-            data = h5py.File(os.path.join(root, file), 'r')
-            print(os.path.join(root, file))
-            for name, vars_ in data.items():
-                if name == 'compiled':
-                    for name in vars_:
-                        if name in list_of_wanted:
-                            if "HYPO" in root:
-                                key_of_dict = file + name + "HYPO"
-                            if "HYPER" in root:
-                                key_of_dict = file + name + "HYPER"
-                            dict_of_data[key_of_dict] = vars_.get(name).value
-                            # with open((root + file + name + '.csv'), 'wb') as f:
-                            #     np.savetxt(f, vars_.get(name).value, delimiter=',')
+    # Find *_with_compiled.mat and load it into memory
+    reg_file = re.compile(file_end)
+    reg_fov = re.compile(r'(FOV_\d)')
+    for root, dirs, files in os.walk(directory):
+        for file in files:
+            if reg_file.search(file):
+                data = h5py.File(os.path.join(root, file), 'r')
+                fov = reg_fov.findall(root)[0]
+                print(os.path.join(root, file))
+                for name, vars_ in data.items():
+                    if name == 'compiled':
+                        for name in vars_:
+                            if name in list_of_wanted:
+                                if "HYPO" in root:
+                                    key_of_dict = file[:-4] + "_" + name + "_" + fov + "_HYPO"
+                                if "HYPER" in root:
+                                    key_of_dict = file[:-4] + "_" + name + "_" + fov + "_HYPER"
+                                dict_of_data[key_of_dict] = vars_.get(name).value
+                                # with open((root + file + name + '.csv'), 'wb') as f:
+                                #     np.savetxt(f, vars_.get(name).value, delimiter=',')
 
-# Process data
-dict_of_std_hypo = {key: np.array([]) for key in list_of_wanted}
-dict_of_averages_hypo = {key: np.array([]) for key in list_of_wanted}
-dict_of_std_hyper = {key: np.array([]) for key in list_of_wanted}
-dict_of_averages_hyper = {key: np.array([]) for key in list_of_wanted}
+    return dict_of_data
 
-for key in sorted(dict_of_data):
-    for key2 in sorted(dict_of_averages_hypo):
-        if key2 in key:
-            average = np.mean(dict_of_data[key])
-            if "HYPO" in key:
-                dict_of_averages_hypo[key2] = np.append(dict_of_averages_hypo[key2], average)
-            else:
-                dict_of_averages_hyper[key2] = np.append(dict_of_averages_hyper[key2], average)
 
-hypo_mean: Dict = {}
-hypo_std: Dict = {}
-hyper_mean: Dict = {}
-hyper_std: Dict = {}
+def process_parsed_data_with_hypo_hyper(dict_of_data, list_of_wanted):
+    """ Take the extracted data and find the relevant EP variables """
 
-for key in sorted(dict_of_averages_hyper):
-    plt.figure()
-    last_ind = len(dict_of_averages_hyper[key]) if len(dict_of_averages_hyper[key]) < len(dict_of_averages_hypo[key]) \
-        else len(dict_of_averages_hypo[key])
-    _, pval = stats.ttest_ind(dict_of_averages_hypo[key], dict_of_averages_hyper[key],
-                              equal_var=False)
-    plt.title(f"{key}, p-value (Welch): {pval:.3f}")
-    ###
-    np.save(arr=dict_of_averages_hyper, file='avg_hyper.npy')
-    np.save(arr=dict_of_averages_hypo, file='avg_hypo.npy')
-    ###
+    dict_of_std_hypo = {key: np.array([]) for key in list_of_wanted}
+    dict_of_averages_hypo = {key: np.array([]) for key in list_of_wanted}
+    dict_of_std_hyper = {key: np.array([]) for key in list_of_wanted}
+    dict_of_averages_hyper = {key: np.array([]) for key in list_of_wanted}
 
-    hypo_std[key] = np.std(dict_of_averages_hypo[key])
-    hypo_mean[key] = np.mean(dict_of_averages_hypo[key])
-    hyper_std[key] = np.std(dict_of_averages_hyper[key])
-    hyper_mean[key] = np.mean(dict_of_averages_hyper[key])
-    plt.errorbar(np.arange(2), [hypo_mean[key], hyper_mean[key]],
-                 yerr=[hypo_std[key], hyper_std[key]], fmt='o')
-    labels = ['Hypo', 'Hyper']
-    plt.xticks(np.arange(2), labels)
+    for key in sorted(dict_of_data):
+        for key2 in sorted(dict_of_averages_hypo):
+            if key2 in key:
+                average = np.mean(dict_of_data[key])
+                cur_std = np.std(dict_of_data[key])
+                if "HYPO" in key:
+                    dict_of_averages_hypo[key2] = np.append(dict_of_averages_hypo[key2], average)
+                    dict_of_std_hypo[key2] = np.append(dict_of_std_hypo[key2], cur_std)
+                else:
+                    dict_of_averages_hyper[key2] = np.append(dict_of_averages_hyper[key2], average)
+                    dict_of_std_hyper[key2] = np.append(dict_of_std_hyper[key2], cur_std)
 
-# Write to a Google sheet
-dict_of_data = {'hypo_mean': hypo_mean,
-                'hypo_std': hypo_std,
-                'hyper_mean': hyper_mean,
-                'hyper_std': hyper_std}
-write_all_data_to_gsheet(data=dict_of_data, sheetname="Rotated Mice2")
+    return dict_of_std_hypo, dict_of_averages_hypo, dict_of_std_hyper, dict_of_averages_hyper
 
-# Save figures to a single PDF
-# multipage('hypo_hyper_mean_std_with_Welch_t_test.pdf')
+
+def plot_and_export_results(dict_of_std_hypo, dict_of_averages_hypo, dict_of_std_hyper, dict_of_averages_hyper):
+    hypo_mean: Dict = {}
+    hypo_std: Dict = {}
+    hyper_mean: Dict = {}
+    hyper_std: Dict = {}
+
+    for key in sorted(dict_of_averages_hyper):
+        plt.figure()
+        last_ind = len(dict_of_averages_hyper[key]) if len(dict_of_averages_hyper[key]) < len(dict_of_averages_hypo[key]) \
+            else len(dict_of_averages_hypo[key])
+        _, pval = stats.ttest_ind(dict_of_averages_hypo[key], dict_of_averages_hyper[key],
+                                  equal_var=False)
+        plt.title(f"{key}, p-value (Welch): {pval:.3f}")
+        ###
+        np.save(arr=dict_of_averages_hyper, file='avg_hyper.npy')
+        np.save(arr=dict_of_averages_hypo, file='avg_hypo.npy')
+        ###
+
+        hypo_std[key] = np.std(dict_of_averages_hypo[key])
+        hypo_mean[key] = np.mean(dict_of_averages_hypo[key])
+        hyper_std[key] = np.std(dict_of_averages_hyper[key])
+        hyper_mean[key] = np.mean(dict_of_averages_hyper[key])
+        plt.errorbar(np.arange(2), [hypo_mean[key], hyper_mean[key]],
+                     yerr=[hypo_std[key], hyper_std[key]], fmt='o')
+        labels = ['Hypo', 'Hyper']
+        plt.xticks(np.arange(2), labels)
+
+    # Write to a Google sheet - only means of each mouse
+    # dict_of_data = {'hypo_mean': hypo_mean,
+    #                 'hypo_std': hypo_std,
+    #                 'hyper_mean': hyper_mean,
+    #                 'hyper_std': hyper_std}
+    # Write to a Google sheet - all data points with their STD
+    dict_of_data = {'hypo_mean': dict_of_averages_hypo,
+                    'hypo_std': dict_of_std_hypo,
+                    'hyper_mean': dict_of_averages_hyper,
+                    'hyper_std': dict_of_std_hyper}
+    # write_all_data_to_gsheet(data=dict_of_data, sheetname="Rotated Mice2")
+
+
+def process_reg_and_rotated_mice(dict_of_data, list_of_wanted):
+    """ Used when we measured EP for the same mouse in two different orientations """
+
+    cols = ['Measure', 'FOV', 'Hemisphere', 'Orientation', 'Data']
+    df = pd.DataFrame([], columns=cols)
+    keys = np.array(list(dict_of_data.keys()), dtype=str)
+
+    for key in list_of_wanted:
+        indices = np.core.defchararray.find(keys, key)
+        rel_keys = keys[indices >= 0]
+        for rel_key in rel_keys:
+            # Find the values of the specific entry
+            cur_fov = 1 if 'FOV_1' in rel_key else 2
+            hemi = 'Hyper' if 'HYPER' in rel_key else 'Hypo'
+            ori = 'Regular' if 'regular' in rel_key else 'Rotated'
+            data = np.mean(dict_of_data[rel_key])
+            helper = pd.DataFrame([[key, cur_fov, hemi, ori, data]], columns=cols)
+            df = df.append(helper, ignore_index=True)
+
+    df.set_index(['Measure', 'FOV', 'Hemisphere', 'Orientation'], drop=True, inplace=True)
+    return df
+
+
+def plot_rotated_data(df):
+    for measure in df.index.levels[0]:
+        fig = plt.figure()
+        ax = fig.add_subplot(111)
+        plt.title(measure)
+        all_hypo = df.loc[measure].xs('Hypo', level='Hemisphere')
+        all_hyper = df.loc[measure].xs('Hyper', level='Hemisphere')
+
+        data_to_plot = np.zeros((2, 4), dtype=np.float64)
+        data_to_plot[:, 0] = np.squeeze(all_hypo.xs('Regular', level='Orientation').values)
+        data_to_plot[:, 1] = np.squeeze(all_hypo.xs('Rotated', level='Orientation').values)
+        data_to_plot[:, 2] = np.squeeze(all_hyper.xs('Regular', level='Orientation').values)
+        data_to_plot[:, 3] = np.squeeze(all_hyper.xs('Rotated', level='Orientation').values)
+        x_data = np.array([[np.arange(4)], [np.arange(4)]])
+        ax.set_xticks((0, 1, 2, 3))
+        ax.set_xticklabels(('Hypo-Regular', 'Hypo-Rotated', 'Hyper-Regular', 'Hyper-Rotated'))
+
+        ax.scatter(x_data, data_to_plot)
+
+
+def main():
+    directory = r'X:\David\7mm_win_thy1\results'
+    list_of_wanted = ['S_or_run_stim', 'S_or_run_spont', 'S_or_run_juxta',
+                      'S_or_stand_stim', 'S_or_stand_spont', 'S_or_stand_juxta',
+                      'C_df_run_stim', 'C_df_run_spont', 'C_df_run_juxta',
+                      'C_df_stand_stim', 'C_df_stand_spont', 'C_df_stand_juxta']
+    dict_of_data = walk_ep_dirs(directory=directory, file_end=r"compiled_r.+\.mat$",
+                                list_of_wanted=list_of_wanted)
+    # For normal TAC analysis
+    # dict_of_std_hypo, dict_of_averages_hypo, \
+    # dict_of_std_hyper, dict_of_averages_hyper = process_parsed_data_with_hypo_hyper(dict_of_data, list_of_wanted)
+    # plot_and_export_results(dict_of_std_hypo, dict_of_averages_hypo, dict_of_std_hyper, dict_of_averages_hyper)
+    # For regular-rotated analysis
+    df = process_reg_and_rotated_mice(dict_of_data, np.array(list_of_wanted))
+    plot_rotated_data(df)
+    # Save figures to a single PDF
+    multipage('hypo_hyper_rotated_and_regular_same_mouse.pdf')
+
+
+if __name__ == '__main__':
+    main()
