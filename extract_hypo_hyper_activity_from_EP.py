@@ -1,9 +1,6 @@
 """
 __author__ = Hagai Hargil
 """
-import h5py
-import re
-import os
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
@@ -14,6 +11,9 @@ from oauth2client.service_account import ServiceAccountCredentials
 import warnings
 from collections import deque
 import pandas as pd
+
+from plot_and_analyze_hyper_hypo import process_ep_output, plot_all_ca_traces
+from readout_ep_output import walk_ep_dirs_old, extract_data_from_ep_dirs
 
 
 def multipage(filename, figs=None, dpi=200):
@@ -87,35 +87,6 @@ def write_all_data_to_gsheet(data: Dict, sheetname="Sheet1",
 
     for key, dict_data in data.items():
         write_dict_to_gsheet(data=dict_data, sheet=sheet, row=key)
-
-
-def walk_ep_dirs(directory: str, file_end: str, list_of_wanted):
-    """ Walk through dir, finding files ending with file_end """
-
-    dict_of_data: Dict = {}
-
-    # Find *_with_compiled.mat and load it into memory
-    reg_file = re.compile(file_end)
-    reg_fov = re.compile(r'(FOV_\d)')
-    for root, dirs, files in os.walk(directory):
-        for file in files:
-            if reg_file.search(file):
-                data = h5py.File(os.path.join(root, file), 'r')
-                fov = reg_fov.findall(root)[0]
-                print(os.path.join(root, file))
-                for name, vars_ in data.items():
-                    if name == 'compiled':
-                        for name in vars_:
-                            if name in list_of_wanted:
-                                if "HYPO" in root:
-                                    key_of_dict = file[:-4] + "_" + name + "_" + fov + "_HYPO"
-                                if "HYPER" in root:
-                                    key_of_dict = file[:-4] + "_" + name + "_" + fov + "_HYPER"
-                                dict_of_data[key_of_dict] = vars_.get(name).value
-                                # with open((root + file + name + '.csv'), 'wb') as f:
-                                #     np.savetxt(f, vars_.get(name).value, delimiter=',')
-
-    return dict_of_data
 
 
 def process_parsed_data_with_hypo_hyper(dict_of_data, list_of_wanted):
@@ -224,24 +195,28 @@ def plot_rotated_data(df):
         ax.scatter(x_data, data_to_plot)
 
 
-def main():
-    directory = r'X:\David\7mm_win_thy1\results'
-    list_of_wanted = ['S_or_run_stim', 'S_or_run_spont', 'S_or_run_juxta',
-                      'S_or_stand_stim', 'S_or_stand_spont', 'S_or_stand_juxta',
-                      'C_df_run_stim', 'C_df_run_spont', 'C_df_run_juxta',
-                      'C_df_stand_stim', 'C_df_stand_spont', 'C_df_stand_juxta']
-    dict_of_data = walk_ep_dirs(directory=directory, file_end=r"compiled_r.+\.mat$",
-                                list_of_wanted=list_of_wanted)
+if __name__ == '__main__':
+    directory = r'X:\David\THY_1_GCaMP_BEFOREAFTER_TAC_290517\results'
+    # list_of_wanted = ['S_or_run_stim', 'S_or_run_spont', 'S_or_run_juxta',
+    #                   'S_or_stand_stim', 'S_or_stand_spont', 'S_or_stand_juxta',
+    #                   'C_df_run_stim', 'C_df_run_spont', 'C_df_run_juxta',
+    #                   'C_df_stand_stim', 'C_df_stand_spont', 'C_df_stand_juxta']
+    list_of_wanted = ['C_df', 'S_or']
     # For normal TAC analysis
     # dict_of_std_hypo, dict_of_averages_hypo, \
     # dict_of_std_hyper, dict_of_averages_hyper = process_parsed_data_with_hypo_hyper(dict_of_data, list_of_wanted)
     # plot_and_export_results(dict_of_std_hypo, dict_of_averages_hypo, dict_of_std_hyper, dict_of_averages_hyper)
+
     # For regular-rotated analysis
-    df = process_reg_and_rotated_mice(dict_of_data, np.array(list_of_wanted))
-    plot_rotated_data(df)
+    # dict_of_data = walk_ep_dirs_old(directory=directory, file_end=r"compiled_r.+\.mat$",
+    #                                 list_of_wanted=list_of_wanted)
+    # df = process_reg_and_rotated_mice(dict_of_data, np.array(list_of_wanted))
+    # plot_rotated_data(df)
+
+    # Alternative to normal TAC
+    df = extract_data_from_ep_dirs(directory=directory, file_end=r"*compiled.mat",
+                                   list_of_wanted=list_of_wanted)
+    df = plot_all_ca_traces(df)
+
     # Save figures to a single PDF
-    multipage('hypo_hyper_rotated_and_regular_same_mouse.pdf')
-
-
-if __name__ == '__main__':
-    main()
+    # multipage('hypo_hyper_rotated_and_regular_same_mouse.pdf')
