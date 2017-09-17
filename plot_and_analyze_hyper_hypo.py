@@ -7,7 +7,6 @@ import re
 from bokeh.plotting import output_file, show, figure
 from bokeh.models import Div, ColumnDataSource
 from bokeh.layouts import gridplot, column
-from bokeh.charts import TimeSeries
 
 
 def process_ep_output(dict_of_data, list_of_wanted):
@@ -36,18 +35,21 @@ def process_ep_output(dict_of_data, list_of_wanted):
 def plot_all_ca_traces(df):
     """ Take a dataframe of calcium traces from EP and plot it """
 
-    list_of_figures = []
-    output_file(r"C:\Users\Hagai\Documents\GitHub\EP-analysis\all_calcium_traces.html",
-                title="Calcium Analysis")
+    list_of_mice = df.index.get_level_values('animalID')
+    xdata = np.arange(df.iloc[0].values[0].shape[0])
+    grid = []
+    for data_name in df.columns:
+        output_file(r"C:\Users\Hagai\Documents\GitHub\EP-analysis\all_calcium_traces_{}.html".format(data_name),
+                    title=f"Calcium Analysis - {data_name}")
+        list_of_figures = []
+        for mouse in list_of_mice:
+            cur_fig = figure(title=data_name + "_" + mouse)
+            cur_data = df.xs(mouse, level="animalID")[data_name]
+            for item in cur_data:
+                x_mat = np.tile(xdata, (item.shape[0], 1))
+                cur_fig.multi_line(x_mat, item)
+                list_of_figures.append(cur_fig)
 
+        grid.append(list_of_figures)
 
-    xdata = np.arange(df.shape[0])
-
-    ts = TimeSeries(data=df, x=xdata, title="Calcium Traces")
-    show(ts)
-    # for data_name in df.columns:
-    #     cur_fig = figure(title=data_name)
-    #     cur_data = df[data_name]
-    #     source = ColumnDataSource(cur_data)
-    #
-    #     ts = TimeSeries()
+    show(gridplot(grid))

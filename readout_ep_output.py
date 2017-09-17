@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 import pandas as pd
 import attr
-from itertools import chain
+import numpy as np
 
 
 def walk_ep_dirs_old(directory: str, file_end: str, list_of_wanted):
@@ -44,6 +44,7 @@ def extract_data_from_ep_dirs(directory: str, file_end: str, list_of_wanted):
 
     identifiers = ['animalID', 'conditionID', 'daysAfterBaseline', 'FOV']
     df_cols = identifiers + list_of_wanted
+    num_data_cols = len(list_of_wanted)
     df = pd.DataFrame([], columns=df_cols)
     for file in Path(directory).rglob(file_end):
         print(file)
@@ -54,8 +55,25 @@ def extract_data_from_ep_dirs(directory: str, file_end: str, list_of_wanted):
         helper_df = pd.DataFrame([id_object.result + data_for_df], columns=df_cols)
         df = df.append(helper_df, ignore_index=True)
 
-    df.set_index(identifiers, drop=True, inplace=True)
-    return df
+    df_unpacked = unpack_dataframe(df, df_cols, num_data_cols)
+    # df.set_index(identifiers, drop=True, inplace=True)
+    return df_unpacked
+
+
+def unpack_dataframe(df, df_cols, num_data_cols):
+    """ Receives a dataframe with more than one array in its values and unpacks it"""
+
+    MAX_LEN = 5400
+    unpacked = pd.DataFrame([], columns=df_cols)
+    for row in df.itertuples():
+        base_data = list(row[1:-num_data_cols])
+        for col in row[-num_data_cols:]:
+            for neuron_data in np.transpose(col):
+                if type(neuron_data) == np.ndarray:
+                    cur_row_df = pd.DataFrame([base_data + [neuron_data[:MAX_LEN]]], columns=df_cols)
+                    unpacked = unpacked.append(cur_row_df, ignore_index=True)
+    unpacked.set_index(df_cols[:-(num_data_cols)], drop=True, inplace=True, append=True)
+    return unpacked
 
 
 @attr.s(slots=True)
@@ -85,7 +103,7 @@ class IdentifierExtractor(object):
 
     def daysAfterBaseline(self):
         reg = re.compile(r"DAY_(\d+)")
-        return reg.findall(str(self.pathobj.parent))[0]
+        return int(reg.findall(str(self.pathobj.parent))[0])
 
     def conditionID(self):
         reg = re.compile(r"(HYPER|HYPO)")
@@ -93,16 +111,4 @@ class IdentifierExtractor(object):
 
     def FOV(self):
         reg = re.compile(r"FOV_(\d+)")
-        return reg.findall(str(self.pathobj.parent))[0]
-
-
-@attr.s(slots=True)
-class DataExtractor(object):
-    """ Extract and concatenate data from a nexted list of outputs """
-
-    list_of_data = attr.ib()
-    unstacked_data = attr.ib(init=False)
-
-    def unstack_data(self):
-        num_of_fields = len(self.list_of_data)
-        self.unstacked_data = []
+        return int(reg.findall(str(self.pathobj.parent))[0])

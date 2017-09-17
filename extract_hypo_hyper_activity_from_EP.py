@@ -11,6 +11,7 @@ from oauth2client.service_account import ServiceAccountCredentials
 import warnings
 from collections import deque
 import pandas as pd
+import holoviews as hv
 
 from plot_and_analyze_hyper_hypo import process_ep_output, plot_all_ca_traces
 from readout_ep_output import walk_ep_dirs_old, extract_data_from_ep_dirs
@@ -201,7 +202,7 @@ if __name__ == '__main__':
     #                   'S_or_stand_stim', 'S_or_stand_spont', 'S_or_stand_juxta',
     #                   'C_df_run_stim', 'C_df_run_spont', 'C_df_run_juxta',
     #                   'C_df_stand_stim', 'C_df_stand_spont', 'C_df_stand_juxta']
-    list_of_wanted = ['C_df', 'S_or']
+    list_of_wanted = ['C_df']
     # For normal TAC analysis
     # dict_of_std_hypo, dict_of_averages_hypo, \
     # dict_of_std_hyper, dict_of_averages_hyper = process_parsed_data_with_hypo_hyper(dict_of_data, list_of_wanted)
@@ -216,7 +217,6 @@ if __name__ == '__main__':
     # Alternative to normal TAC
     df = extract_data_from_ep_dirs(directory=directory, file_end=r"*compiled.mat",
                                    list_of_wanted=list_of_wanted)
-    df = plot_all_ca_traces(df)
-
+    # df = plot_all_ca_traces(df)
     # Save figures to a single PDF
     # multipage('hypo_hyper_rotated_and_regular_same_mouse.pdf')
